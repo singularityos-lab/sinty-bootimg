@@ -35,6 +35,16 @@ sinty-bootimg android -device google/pixel-7-pro \
   -key avb.pem -out images/
 ```
 
+A release's signed unified kernel image carries all three inputs, so the boot
+images can be made from the same bytes the release ships:
+
+```sh
+sinty-bootimg android -device google/pixel-7-pro -uki kernelcache.efi \
+  -key avb.pem -out images/
+```
+
+The device tree is the one in the image whose `compatible` names the device.
+
 `-device` reads the profile from the catalog built into the tool, and
 `-profile` reads one from a file, for a profile that is not merged yet. `-dtb`
 names the device tree directly instead of the kernel's `dts` directory. The

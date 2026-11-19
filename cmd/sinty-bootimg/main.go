@@ -29,6 +29,8 @@ usage:
 android flags:
   -device <id>        a device from the embedded catalog, such as google/pixel-7-pro
   -profile <file>     a profile file instead of a catalog device
+  -uki <file>         a unified kernel image to take the kernel, initramfs and
+                      the device's device tree from, instead of the three below
   -kernel <file>      the kernel Image, raw or legacy lz4
   -dtb <file>         the device tree, or
   -dts-dir <dir>      the kernel's arch/<arch>/boot/dts, where the profile's dtb is
@@ -92,6 +94,7 @@ func cmdAndroid(args []string) error {
 	fl := flag.NewFlagSet("android", flag.ContinueOnError)
 	id := fl.String("device", "", "")
 	file := fl.String("profile", "", "")
+	uki := fl.String("uki", "", "")
 	kernel := fl.String("kernel", "", "")
 	dtb := fl.String("dtb", "", "")
 	dtsDir := fl.String("dts-dir", "", "")
@@ -109,24 +112,43 @@ func cmdAndroid(args []string) error {
 	if p.Boot == nil {
 		return fmt.Errorf("%s has no boot section", p.ID)
 	}
-	if *out == "" || *kernel == "" || *initramfs == "" {
-		return errors.New("-kernel, -initramfs and -out are required")
-	}
-	switch {
-	case *dtb != "" && *dtsDir != "":
-		return errors.New("give -dtb or -dts-dir, not both")
-	case *dtsDir != "":
-		*dtb = filepath.Join(*dtsDir, filepath.FromSlash(p.Boot.DTB))
-	case *dtb == "":
-		return errors.New("-dtb or -dts-dir is required")
+	if *out == "" {
+		return errors.New("-out is required")
 	}
 	in := bootimg.Inputs{}
-	for _, f := range []struct {
-		dst  *[]byte
-		path string
-	}{{&in.Kernel, *kernel}, {&in.DTB, *dtb}, {&in.Initramfs, *initramfs}} {
-		if *f.dst, err = os.ReadFile(f.path); err != nil {
+	if *uki != "" {
+		if *kernel != "" || *dtb != "" || *dtsDir != "" || *initramfs != "" {
+			return errors.New("-uki replaces -kernel, -dtb, -dts-dir and -initramfs")
+		}
+		if len(p.Match.Compatible) == 0 {
+			return fmt.Errorf("%s names no device tree compatible to find in the image", p.ID)
+		}
+		data, err := os.ReadFile(*uki)
+		if err != nil {
 			return err
+		}
+		if in.Kernel, in.Initramfs, in.DTB, err = bootimg.FromUKI(data, p.Match.Compatible[0]); err != nil {
+			return fmt.Errorf("%s: %w", *uki, err)
+		}
+	} else {
+		if *kernel == "" || *initramfs == "" {
+			return errors.New("-uki, or -kernel and -initramfs, are required")
+		}
+		switch {
+		case *dtb != "" && *dtsDir != "":
+			return errors.New("give -dtb or -dts-dir, not both")
+		case *dtsDir != "":
+			*dtb = filepath.Join(*dtsDir, filepath.FromSlash(p.Boot.DTB))
+		case *dtb == "":
+			return errors.New("-dtb or -dts-dir is required")
+		}
+		for _, f := range []struct {
+			dst  *[]byte
+			path string
+		}{{&in.Kernel, *kernel}, {&in.DTB, *dtb}, {&in.Initramfs, *initramfs}} {
+			if *f.dst, err = os.ReadFile(f.path); err != nil {
+				return err
+			}
 		}
 	}
 	if *keyFile != "" {
